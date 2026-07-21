@@ -5,7 +5,7 @@ namespace YBotEngine.Services;
 
 public class DiscordEventRegistry
 {
-    public Dictionary<string, Type> AvailableEvents { get; }  = new();
+    public Dictionary<string, Type> AvailableEvents { get; } = new();
 
     public DiscordEventRegistry()
     {
@@ -24,7 +24,7 @@ public class DiscordEventRegistry
             }
             else
             {
-                AvailableEvents[eventInfo.Name] = typeof(object);
+                AvailableEvents[eventInfo.Name] = typeof(void);
             }
         }
     }
@@ -32,25 +32,5 @@ public class DiscordEventRegistry
     public string? GetEventPayloadTypeName(string eventName)
     {
         return AvailableEvents.TryGetValue(eventName, out var type) ? type.FullName : null;
-    }
-    
-    public record CompletionMetadata(string Name, bool IsMethod, string InsertText, string TypeDetails);
-
-    public List<CompletionMetadata> GetEventCompletionProperties(string eventName)
-    {
-        var list = new List<CompletionMetadata>();
-    
-        if (!AvailableEvents.TryGetValue(eventName, out var type))
-            return list;
-
-        var properties = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-        list.AddRange(properties.Select(prop => new CompletionMetadata(prop.Name, false, prop.Name, prop.PropertyType.Name)));
-
-        var methods = type.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-            .Where(m => m.Name.EndsWith("Async") && !m.IsSpecialName);
-
-        list.AddRange(methods.Select(method => new CompletionMetadata(method.Name, true, $"{method.Name}(${{1}})", "ValueTask")));
-
-        return list;
     }
 }

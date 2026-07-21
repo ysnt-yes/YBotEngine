@@ -2,10 +2,10 @@
 
 namespace YBotEngine.Services;
 
-public class DiscordEventContext(object payload, IServiceProvider serviceProvider) : IRunnerContext
+public class DiscordEventContext<TPayload>(TPayload payload, IServiceProvider serviceProvider) : IRunnerContext
 {
-    public IServiceProvider ServiceProvider { get; } = serviceProvider;
-    public object Data { get; } = payload;
+    private IServiceProvider ServiceProvider { get; } = serviceProvider;
+    public TPayload Data { get; } = payload;
 
     public T GetService<T>() where T : notnull
     {

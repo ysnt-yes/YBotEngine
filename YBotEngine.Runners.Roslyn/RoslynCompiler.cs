@@ -6,14 +6,14 @@ using YBotEngine.Runners.Abstractions;
 
 namespace YBotEngine.Runners.Roslyn;
 
-public class RoslynCompiler<TContext>(ScriptOptions globalOptions, ILogger<RoslynCompiler<TContext>> logger) : ICompiler where TContext : class, IRunnerContext
+public class RoslynCompiler(ScriptOptions globalOptions, ILogger<RoslynCompiler> logger) : ICompiler
 {
     public Task<IRunner> CompileAsync(string scriptCode, Type contextType)
     {
         try
         {
             var dataTypes = contextType.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRunnerContext<>))
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRunnerContext))
                 .Select(i => i.GetGenericArguments()[0]);
 
             var types = dataTypes.ToList();
@@ -58,7 +58,7 @@ public class RoslynCompiler<TContext>(ScriptOptions globalOptions, ILogger<Rosly
                 }
             }
 
-            return Task.FromResult<IRunner>(new RoslynRunner<TContext>(script.CreateDelegate()));
+            return Task.FromResult<IRunner>(new RoslynRunner(script.CreateDelegate()));
         }
         catch (Exception exception)
         {

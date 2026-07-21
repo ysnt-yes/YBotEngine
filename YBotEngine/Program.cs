@@ -20,7 +20,7 @@ builder.Services.AddApplicationCommands();
 
 builder.Services.AddDefaultScriptOptions();
 
-builder.Services.AddKeyedSingleton<ICompiler, RoslynCompiler<DiscordEventContext>>(CompilerType.Roslyn);
+builder.Services.AddKeyedSingleton<ICompiler, RoslynCompiler>(CompilerType.Roslyn);
 
 builder.Services.AddSingleton<DiscordEventRegistry>();
 builder.Services.AddSingleton<UserScriptManager>();
