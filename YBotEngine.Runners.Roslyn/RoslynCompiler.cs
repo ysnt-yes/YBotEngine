@@ -1,0 +1,68 @@
+﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Scripting;
+using Microsoft.CodeAnalysis.Scripting;
+using Microsoft.Extensions.Logging;
+using YBotEngine.Runners.Abstractions;
+
+namespace YBotEngine.Runners.Roslyn;
+
+public class RoslynCompiler<TContext>(ScriptOptions globalOptions, ILogger<RoslynCompiler<TContext>> logger) : ICompiler where TContext : class, IRunnerContext
+{
+    public Task<IRunner> CompileAsync(string scriptCode, Type contextType)
+    {
+        try
+        {
+            var dataTypes = contextType.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRunnerContext<>))
+                .Select(i => i.GetGenericArguments()[0]);
+
+            var types = dataTypes.ToList();
+            var assemblies = types.Select(t => t.Assembly).Append(contextType.Assembly).Distinct();
+            var namespaces = types.Select(t => t.Namespace!).Append(contextType.Namespace!).Distinct();
+
+            var runtimeOptions = globalOptions
+                .WithReferences(assemblies)
+                .WithImports(namespaces);
+
+            var script = CSharpScript.Create(scriptCode, runtimeOptions, globalsType: contextType);
+        
+            var diagnostics = script.Compile();
+        
+            if (diagnostics.Length > 0)
+            {
+                foreach (var diagnostic in diagnostics)
+                {
+                    switch (diagnostic.Severity)
+                    {
+                        case DiagnosticSeverity.Info:
+                            logger.LogInformation(diagnostic.GetMessage());
+                            break;
+                        case DiagnosticSeverity.Warning:
+                            logger.LogWarning(diagnostic.GetMessage());
+                            break;
+                        case DiagnosticSeverity.Error:
+                            logger.LogError(diagnostic.GetMessage());
+                            break;
+                        case DiagnosticSeverity.Hidden:
+                            break;
+                        default:
+                            logger.LogDebug(diagnostic.GetMessage());
+                            break;
+                    }
+                }
+                
+                var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+                if (errors.Count > 0)
+                {
+                    throw new CompilationErrorException("Failed to compile user script.", diagnostics);
+                }
+            }
+
+            return Task.FromResult<IRunner>(new RoslynRunner<TContext>(script.CreateDelegate()));
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException<IRunner>(exception);
+        }
+    }
+}

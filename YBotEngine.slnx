@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="YBotEngine.Runners.Abstractions/YBotEngine.Runners.Abstractions.csproj" />
+  <Project Path="YBotEngine.Runners.Roslyn/YBotEngine.Runners.Roslyn.csproj" />
+  <Project Path="YBotEngine/YBotEngine.csproj" />
+</Solution>
