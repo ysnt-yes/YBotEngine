@@ -23,17 +23,16 @@ public class UserScriptManager(
             throw new ArgumentException($"Script '{scriptName}' is already registered.");
         }
 
-        if (!registry.AvailableEvents.TryGetValue(eventName, out var eventDataType))
+        if (!registry.AvailableEvents.TryGetValue(eventName, out var eventData))
         {
             throw new ArgumentException($"Event '{eventName}' does not exist in NetCord.");
         }
-
+        var clientEvent = eventData.eventInfo;
+        var eventDataType = eventData.payloadType;
+        
         var compiler = provider.GetRequiredKeyedService<ICompiler>(compilerType);
-        var runner = await compiler.CompileAsync(script, eventDataType);
-
-        var clientEvent = client.GetType().GetEvent(eventName) 
-            ?? throw new InvalidOperationException($"Netcord event '{eventName}' metadata not found.");
-
+        var runner = await compiler.CompileAsync(script, eventData.payloadType);
+        
         Delegate targetDelegate;
 
         if (eventDataType != typeof(void))

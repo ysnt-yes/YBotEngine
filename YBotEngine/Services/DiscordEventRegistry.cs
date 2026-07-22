@@ -5,7 +5,7 @@ namespace YBotEngine.Services;
 
 public class DiscordEventRegistry
 {
-    public Dictionary<string, Type> AvailableEvents { get; } = new();
+    public Dictionary<string, (EventInfo eventInfo, Type payloadType)> AvailableEvents { get; } = new();
 
     public DiscordEventRegistry()
     {
@@ -20,17 +20,17 @@ public class DiscordEventRegistry
 
             if (parameters.Length > 0)
             {
-                AvailableEvents[eventInfo.Name] = parameters[0].ParameterType;
+                AvailableEvents[eventInfo.Name] = (eventInfo, parameters[0].ParameterType);
             }
             else
             {
-                AvailableEvents[eventInfo.Name] = typeof(void);
+                AvailableEvents[eventInfo.Name] = (eventInfo, typeof(void));
             }
         }
     }
     
     public string? GetEventPayloadTypeName(string eventName)
     {
-        return AvailableEvents.TryGetValue(eventName, out var type) ? type.FullName : null;
+        return AvailableEvents.TryGetValue(eventName, out var type) ? type.payloadType.FullName : null;
     }
 }

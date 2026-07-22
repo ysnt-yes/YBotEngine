@@ -1,23 +1,31 @@
-import { defineConfig } from 'vite'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
+import adapter from '@sveltejs/adapter-static';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [svelte()],
-  build: {
-    outDir: '../YBotEngine/wwwroot',
-    emptyOutDir: true,
-  },
-  server: {
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        secure: false,
-      }
-    }
-  }
-  
-})
+	plugins: [
+		sveltekit({
+			compilerOptions: {
+				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
+				runes: ({ filename }) =>
+					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+			},
+			adapter: adapter()
+		})
+	],
+	build: {
+		outDir: '../YBotEngine/wwwroot',
+		emptyOutDir: true,
+	},
+	server: {
+		port: 5173,
+		strictPort: true,
+		proxy: {
+			'/api': {
+				target: 'http://localhost:5042',
+				changeOrigin: true,
+				secure: false,
+			}
+		}
+	}
+});

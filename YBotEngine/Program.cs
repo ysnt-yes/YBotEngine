@@ -25,6 +25,9 @@ builder.Services.AddKeyedSingleton<ICompiler, RoslynCompiler>(CompilerType.Rosly
 builder.Services.AddSingleton<DiscordEventRegistry>();
 builder.Services.AddSingleton<UserScriptManager>();
 
+builder.Services.AddSingleton<LspService>();
+builder.Services.AddKeyedSingleton<ILspLanguageProvider, CSharpLspProvider>("csharp");
+
 
 var app = builder.Build();
 
@@ -35,7 +38,41 @@ if (!app.Environment.IsDevelopment())
 
 app.UseRouting();
 //app.UseAuthorization();
+app.UseWebSockets();
 
 app.MapFallbackToFile("index.html");
+
+
+app.MapGet("/api/events", (DiscordEventRegistry eventRegistry) =>
+{
+    return eventRegistry.AvailableEvents.Select(kvp => new
+    {
+        Name = kvp.Key,
+        PayloadType = kvp.Value.payloadType.Name
+    });
+});
+
+app.Map("/lsp", async (HttpContext context, LspService lspService) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        return Results.BadRequest("Connection protocol error: WebSocket handshake expected.");
+    }
+
+    var lang = context.Request.Query["lang"].ToString();
+    var session = context.Request.Query["session"].ToString();
+
+    if (string.IsNullOrEmpty(session) || string.IsNullOrEmpty(lang))
+    {
+        return Results.BadRequest("Connection rejected: Missing required 'lang' or 'session' arguments.");
+    }
+
+    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    
+    await lspService.HandleConnectionAsync(webSocket, session, lang);
+    
+    return Results.Empty;
+});
+    
 
 app.Run();
