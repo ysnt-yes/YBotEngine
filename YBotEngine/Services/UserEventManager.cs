@@ -8,11 +8,11 @@ using YBotEngine.Runners.Abstractions;
 
 namespace YBotEngine.Services;
 
-public class UserScriptManager(
+public class UserEventManager(
     IServiceProvider provider, 
     DiscordEventRegistry registry, 
     GatewayClient client,
-    ILogger<UserScriptManager> logger)
+    ILogger<UserEventManager> logger)
 {
     private readonly ConcurrentDictionary<string, (EventInfo Info, Delegate Del)> _registeredScripts = new();
 
@@ -31,14 +31,14 @@ public class UserScriptManager(
         var eventDataType = eventData.payloadType;
         
         var compiler = provider.GetRequiredKeyedService<ICompiler>(compilerType);
-        var contextType = typeof(DiscordEventContext<>).MakeGenericType(eventData.payloadType);
+        var contextType = typeof(DiscordRoslynScriptContext<>).MakeGenericType(eventData.payloadType);
         var runner = await compiler.CompileAsync(script, contextType);
         
         Delegate targetDelegate;
 
         if (eventDataType != typeof(void))
         {
-            var factoryMethod = typeof(UserScriptManager)
+            var factoryMethod = typeof(UserEventManager)
                 .GetMethod(nameof(CreatePayloadBridge), BindingFlags.NonPublic | BindingFlags.Instance)!
                 .MakeGenericMethod(eventDataType);
 
@@ -77,7 +77,7 @@ public class UserScriptManager(
             try
             {
                 using var scope = provider.CreateScope();
-                var context = new DiscordEventContext<TPayload>(eventPayload, scope.ServiceProvider);
+                var context = new DiscordRoslynScriptContext<TPayload>(eventPayload, scope.ServiceProvider);
                 await runner.ExecuteAsync(context);
                 
                 var elapsedMs = Environment.TickCount64 - startTime;
@@ -105,7 +105,7 @@ public class UserScriptManager(
             try
             {
                 using var scope = provider.CreateScope();
-                var context = new DiscordEventContext<object?>(null, scope.ServiceProvider);
+                var context = new DiscordRoslynScriptContext<object?>(null, scope.ServiceProvider);
                 await runner.ExecuteAsync(context);
                 
                 var elapsedMs = Environment.TickCount64 - startTime;

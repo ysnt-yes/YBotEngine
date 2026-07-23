@@ -24,7 +24,7 @@ builder.Services.AddDefaultScriptOptions();
 builder.Services.AddKeyedSingleton<ICompiler, RoslynCompiler>(CompilerType.Roslyn);
 
 builder.Services.AddSingleton<DiscordEventRegistry>();
-builder.Services.AddSingleton<UserScriptManager>();
+builder.Services.AddSingleton<UserEventManager>();
 
 builder.Services.AddSingleton<LspService>();
 builder.Services.AddKeyedSingleton<ILspProvider, CSharpLspProvider>("csharp");
@@ -92,7 +92,7 @@ app.MapPost("/api/lsp", async (
 
 app.MapPost("/api/scripts/save", async (
     [FromBody] SaveScriptRequest request,
-    UserScriptManager scriptManager) =>
+    UserEventManager eventManager) =>
 {
     try
     {
@@ -101,7 +101,7 @@ app.MapPost("/api/scripts/save", async (
             return Results.BadRequest(new { error = "Script code body cannot be empty." });
         }
 
-        await scriptManager.RegisterScriptAsync(
+        await eventManager.RegisterScriptAsync(
             eventName: request.EventName,
             scriptName: request.ScriptId,
             script: request.Code,

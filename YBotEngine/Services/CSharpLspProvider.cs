@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Recommendations;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.Text;
+using YBotEngine.Data;
 
 namespace YBotEngine.Services;
 
@@ -30,7 +31,7 @@ public class CSharpLspProvider : ILspProvider
         
         using var workspace = new AdhocWorkspace();
         var compileTimeType = isVoid ? typeof(EmptyPayload) : payloadType;
-        var globalHostType = typeof(DiscordEventContext<>).MakeGenericType(compileTimeType);
+        var globalHostType = typeof(DiscordRoslynScriptContext<>).MakeGenericType(compileTimeType);
         
         var compilationOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, scriptClassName: "Submission#0", concurrentBuild: false, metadataImportOptions: MetadataImportOptions.Public)
             .WithUsings(_sharedScriptOptions.Imports);

@@ -1,8 +1,8 @@
 ﻿using YBotEngine.Runners.Abstractions;
 
-namespace YBotEngine.Services;
+namespace YBotEngine.Data;
 
-public class DiscordEventContext<TPayload>(TPayload payload, IServiceProvider serviceProvider) : IRunnerContext
+public class DiscordRoslynScriptContext<TPayload>(TPayload payload, IServiceProvider serviceProvider) : IRunnerContext
 {
     private IServiceProvider ServiceProvider { get; init; } = serviceProvider;
     public TPayload Data { get; init; } = payload;

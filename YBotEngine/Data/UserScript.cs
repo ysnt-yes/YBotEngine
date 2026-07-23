@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using NetCord;
 
 namespace YBotEngine.Data;
 
@@ -21,30 +22,45 @@ public class UserScript
     [Required]
     public ScriptTriggerType TriggerType { get; set; } = ScriptTriggerType.GatewayEvent;
 
-    // For Events: "MessageCreated"
-    // For Top Commands: "config"
-    // For Subcommands: "prefix"
+    // Examples: "MessageCreated" | "ping" | "system:status" | "database:scripts:count"
     [Required] 
     public string TriggerKey { get; set; } = string.Empty; 
-
-    // SUBCOMMAND HIERARCHY HOOK
-    // If null: This is a standalone command or an event trigger.
-    // If set: This script is a subcommand belonging to a parent command.
-    public string? ParentScriptId { get; set; }
-
-    [ForeignKey(nameof(ParentScriptId))]
-    public UserScript? ParentScript { get; set; }
-
-    // Navigation property to easily grab nested items if needed
-    public ICollection<UserScript> Subcommands { get; set; } = new List<UserScript>();
-
-    public string? Description { get; set; }
 
     [Required] 
     public CompilerType CompilerType { get; set; } = CompilerType.Roslyn;
     
     [Required] 
     public string Body { get; set; } = string.Empty;
-    
+
+    public string? Description { get; set; }
+
+    public Permissions? RequiredGuildPermissions { get; set; }
+
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+
+    public ICollection<CommandOption> Options { get; set; } = new List<CommandOption>();
+}
+
+public class CommandOption
+{
+    [Key]
+    public string Id { get; set; } = string.Empty;
+
+    [Required]
+    public string UserScriptId { get; set; } = string.Empty;
+
+    [ForeignKey(nameof(UserScriptId))]
+    public UserScript? ParentScript { get; set; }
+
+    [Required]
+    public string Name { get; set; } = string.Empty;
+
+    [Required]
+    public string Description { get; set; } = string.Empty;
+
+    [Required]
+    public ApplicationCommandOptionType Type { get; set; } = ApplicationCommandOptionType.String;
+
+    [Required]
+    public bool IsRequired { get; set; } = false;
 }
