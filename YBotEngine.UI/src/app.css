@@ -1,0 +1,51 @@
+﻿@import "open-props/style"; /* If using open props tokens */
+
+:root, [data-theme="default"] {
+    --bg-color: var(--gray-0, #ffffff);
+    --text-color: var(--gray-12, #111111);
+
+    --primary: var(--blue-6, #2563eb);
+    --primary-hover: var(--blue-7, #1d4ed8);
+    --text-on-primary: #ffffff;
+
+    --secondary: var(--purple-6, #9333ea);
+    --secondary-hover: var(--purple-7, #7e22ce);
+    --text-on-secondary: #ffffff;
+
+    --accent: var(--pink-5, #ec4899);
+    --accent-hover: var(--pink-6, #db2777);
+    --text-on-accent: #ffffff;
+
+    --neutral: var(--gray-6, #4b5563);
+    --neutral-hover: var(--gray-7, #374151);
+    --text-on-neutral: #ffffff;
+
+    --success: var(--emerald-6, #10b981);
+    --success-hover: var(--emerald-7, #047857);
+    --text-on-success: #ffffff;
+
+    --warning: var(--amber-4, #fbbf24);
+    --warning-hover: var(--amber-5, #f59e0b);
+    --text-on-warning: #111111;
+
+    --error: var(--red-6, #ef4444);
+    --error-hover: var(--red-7, #b91c1c);
+    --text-on-error: #ffffff;
+
+    @media (prefers-color-scheme: dark) {
+        --bg-color: var(--gray-12, #111111);
+        --text-color: var(--gray-0, #ffffff);
+
+        --primary: var(--blue-5, #3b82f6);
+        --secondary: var(--purple-5, #a855f7);
+        --neutral: var(--gray-4, #9ca3af);
+        --text-on-neutral: #111111;
+    }
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: system-ui, sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}

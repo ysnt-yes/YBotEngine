@@ -9,60 +9,65 @@ namespace YBotEngine.Runners.Roslyn;
 public class RoslynCompiler(ScriptOptions globalOptions, ILogger<RoslynCompiler> logger) : ICompiler
 {
     public Task<IRunner> CompileAsync(string scriptCode, Type contextType)
+{
+    try
     {
-        try
+        var types = new List<Type>();
+        if (contextType.IsGenericType)
         {
-            var dataTypes = contextType.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRunnerContext))
-                .Select(i => i.GetGenericArguments()[0]);
+            types.AddRange(contextType.GetGenericArguments());
+        }
 
-            var types = dataTypes.ToList();
-            var assemblies = types.Select(t => t.Assembly).Append(contextType.Assembly).Distinct();
-            var namespaces = types.Select(t => t.Namespace!).Append(contextType.Namespace!).Distinct();
-
-            var runtimeOptions = globalOptions
-                .WithReferences(assemblies)
-                .WithImports(namespaces);
-
-            var script = CSharpScript.Create(scriptCode, runtimeOptions, globalsType: contextType);
+        var assemblies = types.Select(t => t.Assembly).Append(contextType.Assembly).Distinct();
         
-            var diagnostics = script.Compile();
-        
-            if (diagnostics.Length > 0)
+        var namespaces = types.Select(t => t.Namespace).Append(contextType.Namespace)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct()!;
+
+        var runtimeOptions = globalOptions
+            .WithReferences(assemblies)
+            .WithImports(namespaces!);
+
+        var script = CSharpScript.Create(scriptCode, runtimeOptions, globalsType: contextType);
+    
+        var diagnostics = script.Compile();
+    
+        if (diagnostics.Length > 0)
+        {
+            foreach (var diagnostic in diagnostics)
             {
-                foreach (var diagnostic in diagnostics)
+                switch (diagnostic.Severity)
                 {
-                    switch (diagnostic.Severity)
-                    {
-                        case DiagnosticSeverity.Info:
-                            logger.LogInformation(diagnostic.GetMessage());
-                            break;
-                        case DiagnosticSeverity.Warning:
-                            logger.LogWarning(diagnostic.GetMessage());
-                            break;
-                        case DiagnosticSeverity.Error:
-                            logger.LogError(diagnostic.GetMessage());
-                            break;
-                        case DiagnosticSeverity.Hidden:
-                            break;
-                        default:
-                            logger.LogDebug(diagnostic.GetMessage());
-                            break;
-                    }
-                }
-                
-                var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
-                if (errors.Count > 0)
-                {
-                    throw new CompilationErrorException("Failed to compile user script.", diagnostics);
+                    case DiagnosticSeverity.Info:
+                        logger.LogInformation(diagnostic.GetMessage());
+                        break;
+                    case DiagnosticSeverity.Warning:
+                        logger.LogWarning(diagnostic.GetMessage());
+                        break;
+                    case DiagnosticSeverity.Error:
+                        logger.LogError(diagnostic.GetMessage());
+                        break;
+                    case DiagnosticSeverity.Hidden:
+                        break;
+                    default:
+                        logger.LogDebug(diagnostic.GetMessage());
+                        break;
                 }
             }
+            
+            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+            if (errors.Count > 0)
+            {
+                throw new CompilationErrorException("Failed to compile user script.", diagnostics);
+            }
+        }
 
-            return Task.FromResult<IRunner>(new RoslynRunner(script.CreateDelegate()));
-        }
-        catch (Exception exception)
-        {
-            return Task.FromException<IRunner>(exception);
-        }
+        return Task.FromResult<IRunner>(new RoslynRunner(script.CreateDelegate()));
     }
+    catch (Exception exception)
+    {
+        return Task.FromException<IRunner>(exception);
+    }
+}
+
 }

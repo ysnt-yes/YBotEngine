@@ -1,7 +1,9 @@
-﻿using Microsoft.CodeAnalysis.Scripting;
+﻿using System.Reflection;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Scripting;
+using Microsoft.Extensions.DependencyInjection;
 using NetCord.Gateway;
 using NetCord.Rest;
-using YBotEngine.Runners.Roslyn;
 
 namespace YBotEngine.Extensions;
 
@@ -9,53 +11,50 @@ public static class ScriptOptionsExtension
 {
     public static IServiceCollection AddDefaultScriptOptions(this IServiceCollection services)
     {
-
         services.AddSingleton<ScriptOptions>(sp =>
         {
-            var coreAssemblies = new[]
+            var coreAssemblyLocation = typeof(object).Assembly.Location;
+            var runtimeDirectory = Path.GetDirectoryName(coreAssemblyLocation)!;
+
+            var coreAssemblies = new MetadataReference[]
             {
-                typeof(object).Assembly,
-                typeof(Console).Assembly,
-                typeof(Enumerable).Assembly,
-                typeof(List<>).Assembly,
-                typeof(System.Text.Json.JsonSerializer).Assembly,
-                typeof(Program).Assembly
+                MetadataReference.CreateFromFile(coreAssemblyLocation),
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(List<>).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location),
+                MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Runtime.dll")),
+                MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Collections.dll")),
+                MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Threading.Tasks.dll")),
+                MetadataReference.CreateFromFile(Assembly.GetEntryAssembly()!.Location) 
             };
 
-            var serviceAssemblies = services
-                .Select(s => s.ServiceType.Assembly)
-                .Distinct();
+            var appDomainAssemblies = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
+                .Select(a => (MetadataReference)MetadataReference.CreateFromFile(a.Location));
 
-            var netCordAssemblies = new[]
+            var netCordAssemblies = new MetadataReference[]
             {
-                typeof(GatewayClient).Assembly,
-                typeof(RestClient).Assembly
-                
+                MetadataReference.CreateFromFile(typeof(GatewayClient).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(RestClient).Assembly.Location)
             };
 
-            var allAssemblies = coreAssemblies
-                .Concat(serviceAssemblies)
+            var allReferences = coreAssemblies
+                .Concat(appDomainAssemblies)
                 .Concat(netCordAssemblies)
-                .Distinct()
+                .GroupBy(r => r is PortableExecutableReference pe ? pe.FilePath : r.ToString()) 
+                .Select(g => g.First())
                 .ToArray();
 
-            var globalImports = new[]
-            {
-                "System",
-                "System.IO",
-                "System.Text",
-                "System.Text.Json",
-                "System.Linq",
-                "System.Collections.Generic",
-                "System.Threading.Tasks",
-                "NetCord",
-                "NetCord.Gateway",
-                "NetCord.Rest",
-                "NetCord.Services"
-            };
+            string[] globalImports =
+            [
+                "System", "System.IO", "System.Text", "System.Text.Json", "System.Linq",
+                "System.Collections.Generic", "System.Threading.Tasks", "NetCord",
+                "NetCord.Gateway", "NetCord.Rest", "NetCord.Services", "YBotEngine.Services"
+            ];
 
             return ScriptOptions.Default
-                .WithReferences(allAssemblies)
+                .WithReferences(allReferences)
                 .WithImports(globalImports);
         });
         

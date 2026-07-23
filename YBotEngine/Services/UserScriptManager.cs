@@ -31,7 +31,8 @@ public class UserScriptManager(
         var eventDataType = eventData.payloadType;
         
         var compiler = provider.GetRequiredKeyedService<ICompiler>(compilerType);
-        var runner = await compiler.CompileAsync(script, eventData.payloadType);
+        var contextType = typeof(DiscordEventContext<>).MakeGenericType(eventData.payloadType);
+        var runner = await compiler.CompileAsync(script, contextType);
         
         Delegate targetDelegate;
 
@@ -71,6 +72,7 @@ public class UserScriptManager(
     {
         Func<TPayload, ValueTask> bridge = async (eventPayload) =>
         {
+            if (eventPayload is Message { Author.IsBot: true }) return;
             var startTime = Environment.TickCount64;
             try
             {

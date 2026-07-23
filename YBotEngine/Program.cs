@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.CodeAnalysis.Scripting;
 using NetCord.Gateway;
@@ -26,7 +27,7 @@ builder.Services.AddSingleton<DiscordEventRegistry>();
 builder.Services.AddSingleton<UserScriptManager>();
 
 builder.Services.AddSingleton<LspService>();
-builder.Services.AddKeyedSingleton<ILspLanguageProvider, CSharpLspProvider>("csharp");
+builder.Services.AddKeyedSingleton<ILspProvider, CSharpLspProvider>("csharp");
 
 
 var app = builder.Build();
@@ -48,31 +49,75 @@ app.MapGet("/api/events", (DiscordEventRegistry eventRegistry) =>
     return eventRegistry.AvailableEvents.Select(kvp => new
     {
         Name = kvp.Key,
-        PayloadType = kvp.Value.payloadType.Name
+        PayloadType = kvp.Value.payloadType == typeof(void) ? "void" : kvp.Value.payloadType.Name
     });
 });
 
-app.Map("/lsp", async (HttpContext context, LspService lspService) =>
+app.MapPost("/api/lsp", async (
+    [FromQuery] string lang, 
+    [FromQuery] string session, 
+    [FromBody] LspQueryPayload payload,
+    LspService lspService) =>
 {
-    if (!context.WebSockets.IsWebSocketRequest)
+    try
     {
-        return Results.BadRequest("Connection protocol error: WebSocket handshake expected.");
+        var provider = lspService.GetProvider(lang);
+
+        lspService.UpdateSessionText(session, payload.Code, payload.PayloadType);
+
+        var completionsTask = provider.GetCompletionsAsync(payload.Code, payload.CursorPosition, payload.PayloadType);
+        var diagnosticsTask = provider.GetDiagnosticsAsync(payload.Code, payload.PayloadType);
+
+        await Task.WhenAll(completionsTask, diagnosticsTask);
+
+        return Results.Ok(new
+        {
+            completions = completionsTask.Result,
+            errors = diagnosticsTask.Result
+        });
     }
-
-    var lang = context.Request.Query["lang"].ToString();
-    var session = context.Request.Query["session"].ToString();
-
-    if (string.IsNullOrEmpty(session) || string.IsNullOrEmpty(lang))
+    catch (NotSupportedException ex)
     {
-        return Results.BadRequest("Connection rejected: Missing required 'lang' or 'session' arguments.");
+        return Results.BadRequest(new { error = ex.Message });
     }
-
-    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-    
-    await lspService.HandleConnectionAsync(webSocket, session, lang);
-    
-    return Results.Empty;
+    catch (KeyNotFoundException ex)
+    {
+        return Results.NotFound(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(title: "Internal compiler error occurred.", detail: ex.Message, statusCode: 500);
+    }
 });
-    
+
+app.MapPost("/api/scripts/save", async (
+    [FromBody] SaveScriptRequest request,
+    UserScriptManager scriptManager) =>
+{
+    try
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            return Results.BadRequest(new { error = "Script code body cannot be empty." });
+        }
+
+        await scriptManager.RegisterScriptAsync(
+            eventName: request.EventName,
+            scriptName: request.ScriptId,
+            script: request.Code,
+            compilerType: CompilerType.Roslyn
+        );
+
+        return Results.Ok(new { success = true, message = "Script registered successfully." });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(
+            title: "Failed to persist script changes.", 
+            detail: ex.Message, 
+            statusCode: 500
+        );
+    }
+});
 
 app.Run();
