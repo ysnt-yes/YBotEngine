@@ -1,212 +1,168 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using NetCord;
-using NetCord.Gateway;
 using NetCord.Rest;
 using NetCord.Services.ApplicationCommands;
 using YBotEngine.Data;
+using YBotEngine.Factories;
 using YBotEngine.Runners.Abstractions;
+using YBotEngine.Services;
 
-namespace YBotEngine.Services;
+namespace YBotEngine.Managers;
 
-
-public class UserCommandManager
+public class UserCommandManager(
+    IServiceProvider serviceProvider,
+    IScriptContextFactory contextFactory,
+    IServiceScopeFactory scopeFactory)
 {
-    private readonly IServiceProvider _provider;
-    private readonly GatewayClient _client;
-    private readonly ApplicationCommandService<ApplicationCommandContext> _commandService;
-    private readonly ILogger<UserCommandManager> _logger;
-
-    private readonly ConcurrentDictionary<string, IRunner> _executionScripts = new();
-    private readonly ConcurrentDictionary<string, byte> _establishedRootRoutes = new();
-
-    public UserCommandManager(
-        IServiceProvider provider, 
-        GatewayClient client,
-        ApplicationCommandService<ApplicationCommandContext> commandService,
-        ILogger<UserCommandManager> logger)
+    
+    private readonly ConcurrentDictionary<string, IRunner> _activeCommandRunners = new();
+    public async Task CompileAndRegisterScriptAsync(string pathKey, string rawSource, string compilerType)
     {
-        _provider = provider;
-        _client = client;
-        _commandService = commandService;
-        _logger = logger;
+        if (string.IsNullOrWhiteSpace(pathKey)) 
+            throw new ArgumentException("Path key cannot be empty.");
 
-        _client.InteractionCreate += HandleInteractionAsync;
+        var compiler = serviceProvider.GetKeyedService<ICompiler>(compilerType.ToLower().Trim())
+            ?? throw new NotSupportedException($"The script compiler backend engine type '{compilerType}' is not registered.");
+
+        Type contextType = typeof(DiscordRoslynScriptContext<ApplicationCommandContext>);
+        IRunner compiledRunner = await compiler.CompileAsync(rawSource, contextType);
+
+        _activeCommandRunners[pathKey.ToLower().Trim()] = compiledRunner;
     }
 
-    public async Task AttachScriptAsync(string triggerKey, string scriptBody, CompilerType compilerType)
+    public void UnregisterCommandPath(string pathKey)
     {
-        var compiler = _provider.GetRequiredKeyedService<ICompiler>(compilerType);
-        var contextType = typeof(DiscordRoslynScriptContext<ApplicationCommandContext>);
-        
-        _executionScripts[triggerKey] = await compiler.CompileAsync(scriptBody, contextType);
-        _logger.LogInformation("Hot-Swap successful for script path: /{Path}", triggerKey.Replace(":", " "));
+        _activeCommandRunners.TryRemove(pathKey.ToLower().Trim(), out _);
     }
 
-    public async Task SyncCommandTreeAsync(string rootName, List<UserScript> associatedScripts, ulong? guildId)
+    public void ClearAll() => _activeCommandRunners.Clear();
+
+    public async Task<string> CreateOrUpdateCommandAsync(
+        string? existingDiscordId,
+        string commandPath,
+        string description,
+        List<UiOptionParameterDto> options,
+        RestClient restClient,
+        ulong applicationId,
+        ulong? guildId = null)
     {
-        EnsureProxyRoutesMounted(rootName, associatedScripts);
+        SlashCommandProperties discordProps = BuildSlashCommandProperties(commandPath, description, options);
 
-        var rootScript = associatedScripts.FirstOrDefault(s => s.TriggerKey == rootName);
-        var optionsProperties = new List<ApplicationCommandOptionProperties>();
+        ApplicationCommand responseCommand;
 
-        // Process Subcommand Groups (2 Deep: e.g. "database:scripts:count")
-        var groupScripts = associatedScripts
-            .Where(s => s.TriggerKey.Split(':').Length == 3)
-            .GroupBy(s => s.TriggerKey.Split(':')[1]); 
-
-        foreach (var group in groupScripts)
+        if (!string.IsNullOrEmpty(existingDiscordId) && ulong.TryParse(existingDiscordId, out ulong cmdId))
         {
-            var subOptions = new List<ApplicationCommandOptionProperties>();
-            foreach (var subScript in group)
-            {
-                var segments = subScript.TriggerKey.Split(':');
-                subOptions.Add(new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommand, segments[2], subScript.Description ?? "Dynamic Subcommand")
-                {
-                    Options = subScript.Options.Select(o => new ApplicationCommandOptionProperties(o.Type, o.Name, o.Description) { Required = o.IsRequired }).ToList()
-                });
-            }
-
-            optionsProperties.Add(new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommandGroup, group.Key, $"Group {group.Key}")
-            {
-                Options = subOptions
-            });
-        }
-
-        var directSubcommands = associatedScripts.Where(s => s.TriggerKey.Split(':').Length == 2);
-        foreach (var subScript in directSubcommands)
-        {
-            var segments = subScript.TriggerKey.Split(':');
-            optionsProperties.Add(new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommand, segments[1], subScript.Description ?? "Dynamic Subcommand")
-            {
-                Options = subScript.Options.Select(o => new ApplicationCommandOptionProperties(o.Type, o.Name, o.Description) { Required = o.IsRequired }).ToList()
-            });
-        }
-
-        if (rootScript != null && optionsProperties.Count == 0)
-        {
-            optionsProperties.AddRange(rootScript.Options.Select(o => new ApplicationCommandOptionProperties(o.Type, o.Name, o.Description) { Required = o.IsRequired }));
-        }
-
-        var rootDescription = rootScript?.Description ?? $"Dynamic command bundle for {rootName}";
-        
-        SlashCommandProperties finalProperties = new(rootName, rootDescription)
-        {
-            Options = optionsProperties,
-            DefaultGuildPermissions = rootScript?.RequiredGuildPermissions
-        };
-
-        var appId = _client.Id;
-        if (guildId.HasValue)
-        {
-            await _client.Rest.CreateGuildApplicationCommandAsync(appId, (ulong)guildId, finalProperties);
+            responseCommand = guildId.HasValue
+                ? await restClient.ModifyGuildApplicationCommandAsync(applicationId, guildId.Value, cmdId, discordProps)
+                : await restClient.ModifyGlobalApplicationCommandAsync(applicationId, cmdId, discordProps);
         }
         else
         {
-            await _client.Rest.CreateGlobalApplicationCommandAsync(appId, finalProperties);
+            responseCommand = guildId.HasValue
+                ? await restClient.CreateGuildApplicationCommandAsync(applicationId, guildId.Value, discordProps)
+                : await restClient.CreateGlobalApplicationCommandAsync(applicationId, discordProps);
         }
-        _logger.LogInformation("Pushed dynamic structure tree layout for root: /{RootName} to Discord.", rootName);
+
+        return responseCommand.Id.ToString();
     }
 
-    private void EnsureProxyRoutesMounted(string rootName, List<UserScript> associatedScripts)
-{
-    if (!_establishedRootRoutes.TryAdd(rootName, 1)) return; 
-
-    var rootScript = associatedScripts.FirstOrDefault(s => s.TriggerKey == rootName);
-    var rootDescription = rootScript?.Description ?? "Dynamic tracking group";
-
-    // Level 0 (No) Nested (e.g., "/ping")
-    if (associatedScripts.Count == 1 && associatedScripts[0].TriggerKey == rootName)
+    private static SlashCommandProperties BuildSlashCommandProperties(string commandPath, string description, List<UiOptionParameterDto> options)
     {
-        Func<ApplicationCommandContext, Task> executionProxyHandler = async (context) => 
-            await ExecuteScriptProxyAsync(rootName, context);
+        var segments = commandPath.Split(':');
+        string rootName = segments[0].ToLower().Trim();
 
-        var builder = new SlashCommandBuilder(rootName, rootDescription, (Delegate)executionProxyHandler);
-        _commandService.AddSlashCommand(builder); 
-        return;
-    }
-
-    var rootGroupBuilder = new SlashCommandGroupBuilder(rootName, rootDescription);
-
-    // Level 1 Nested (e.g., "system:status")
-    var level1Subs = associatedScripts.Where(s => s.TriggerKey.Split(':').Length == 2);
-    
-    foreach (var subScript in level1Subs)
-    {
-        var currentPath = subScript.TriggerKey;
-        var segments = currentPath.Split(':');
-
-        Func<ApplicationCommandContext, Task> subProxy = async (context) => 
-            await ExecuteScriptProxyAsync(currentPath, context);
-
-        rootGroupBuilder.AddSubCommand(segments[1], subScript.Description ?? "Dynamic Subcommand", (Delegate)subProxy);
-    }
-
-    // Level 2 Nested (e.g., "database:scripts:count")
-    var level2Groups = associatedScripts
-        .Where(s => s.TriggerKey.Split(':').Length == 3)
-        .GroupBy(s => s.TriggerKey.Split(':')[1]);
-
-    foreach (var group in level2Groups)
-    {
-        rootGroupBuilder.AddSubCommandGroup(group.Key, $"Group context {group.Key}", builder =>
+        if (segments.Length == 1)
         {
-            foreach (var subScript in group)
+            var props = new SlashCommandProperties(rootName, description);
+            foreach (var opt in options)
             {
-                var currentPath = subScript.TriggerKey;
-                var segments = currentPath.Split(':');
-
-                Func<ApplicationCommandContext, Task> subProxy = async (context) => 
-                    await ExecuteScriptProxyAsync(currentPath, context);
-            
-                builder.AddSubCommand(segments[2], subScript.Description ?? "Dynamic Subcommand", (Delegate)subProxy);
+                props.AddOption(new ApplicationCommandOptionProperties(opt.Type, opt.Name, opt.Description) { Required = opt.IsRequired });
             }
-        });
-    }
-    
-    _commandService.AddSlashCommandGroup(rootGroupBuilder);
-}
-
-
-    private async Task ExecuteScriptProxyAsync(string pathKey, ApplicationCommandContext context)
-    {
-        var startTime = Environment.TickCount64;
-
-        if (!_executionScripts.TryGetValue(pathKey, out var runner))
-        {
-            await context.Interaction.SendResponseAsync(InteractionCallback.Message("This runtime logic block is currently recompiling."));
-            return;
+            return props;
         }
 
-        try
-        {
-            using var scope = _provider.CreateScope();
-            var scriptGlobals = new DiscordRoslynScriptContext<ApplicationCommandContext>(context, scope.ServiceProvider);
-            
-            await runner.ExecuteAsync(scriptGlobals);
+        var baseProps = new SlashCommandProperties(rootName, "Container group");
 
-            var elapsedMs = Environment.TickCount64 - startTime;
-            _logger.LogInformation("Script route Executed successfully: /{Path} in {ElapsedMs}ms", pathKey.Replace(":", " "), elapsedMs);
-        }
-        catch (Exception ex)
+        if (segments.Length == 2)
         {
-            var elapsedMs = Environment.TickCount64 - startTime;
-            _logger.LogError(ex, "Script route /{Path} threw an exception after {ElapsedMs}ms!", pathKey.Replace(":", " "), elapsedMs);
-            await context.Interaction.SendResponseAsync(InteractionCallback.Message("An unhandled exception occurred within the custom script execution stack."));
-        }
-    }
-
-    private ValueTask HandleInteractionAsync(Interaction interaction)
-    {
-        if (interaction is SlashCommandInteraction slashCommand)
-        {
-            _ = Task.Run(async () =>
+            var subCommand = new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommand, segments[1].ToLower().Trim(), description);
+            foreach (var opt in options)
             {
-                var context = new ApplicationCommandContext(slashCommand, _client);
-                await _commandService.ExecuteAsync(context, _provider);
-            });
+                subCommand.AddOption(new ApplicationCommandOptionProperties(opt.Type, opt.Name, opt.Description) { Required = opt.IsRequired });
+            }
+            baseProps.AddOption(subCommand);
         }
-        return ValueTask.CompletedTask;
+        else if (segments.Length == 3)
+        {
+            var subGroup = new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommandGroup, segments[1].ToLower().Trim(), "Group folder");
+            var subCommand = new ApplicationCommandOptionProperties(ApplicationCommandOptionType.SubCommand, segments[2].ToLower().Trim(), description);
+            
+            foreach (var opt in options)
+            {
+                subCommand.AddOption(new ApplicationCommandOptionProperties(opt.Type, opt.Name, opt.Description) { Required = opt.IsRequired });
+            }
+            
+            subGroup.AddOption(subCommand);
+            baseProps.AddOption(subGroup);
+        }
+
+        return baseProps;
+    }
+    public async Task RouteCommandInteractionAsync(SlashCommandContext context)
+    {
+        string lookupPathKey = GetFlattenedCommandKey(context);
+
+        if (_activeCommandRunners.TryGetValue(lookupPathKey, out var runner))
+        {
+            using var scope = scopeFactory.CreateScope();
+            var scopedProvider = scope.ServiceProvider;
+            
+            IRunnerContext scriptContext = contextFactory.CreateContext(
+                payloadType: typeof(SlashCommandContext),
+                payload: context, 
+                serviceProvider: scopedProvider
+            );
+
+            try
+            {
+                await runner.ExecuteAsync(scriptContext);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Script Runtime Crash] Route: {lookupPathKey} | Error: {ex.Message}");
+                try { await context.Interaction.; } catch { }
+            }
+        }
+        else
+        {
+            await context.Interaction.Response.SendMessageAsync($"Routing Failure: No running script matches '/{lookupPathKey.Replace(':', ' ')}'.");
+        }
+    }
+
+    private static string GetFlattenedCommandKey(SlashCommandContext context)
+    {
+        var data = context.Interaction.Data;
+        var pathSegments = new List<string> { data.Name.ToLower().Trim() };
+
+        var currentOptions = context.Interaction.Data.Options;
+        while (currentOptions is { Count: > 0 })
+        {
+            var firstOption = currentOptions[0];
+            if (firstOption.Type is ApplicationCommandOptionType.SubCommand or ApplicationCommandOptionType.SubCommandGroup)
+            {
+                pathSegments.Add(firstOption.Name.ToLower().Trim());
+                currentOptions = firstOption.Options;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return string.Join(':', pathSegments);
     }
 }
