@@ -64,19 +64,20 @@ public class CSharpLspProvider : ILspProvider
         {
             throw new KeyNotFoundException($"No baseline template pre-compiled for event payload type: '{payloadType}'.");
         }
-
+        
         var docId = DocumentId.CreateNewId(template.ProjectId);
         var ephemeralSolution = template.Solution.AddDocument(docId, "script.csx", SourceText.From(code));
+    
         return ephemeralSolution.GetDocument(docId)!;
     }
 
-    public async Task<IEnumerable<LspCompletionItem>> GetCompletionsAsync(string code, int cursorPosition, string payloadType)
+    public async Task<IEnumerable<LspCompletionItem>> GetCompletionsAsync(string code, int cursorPosition, string payloadType, CancellationToken token)
     {
         var document = CreateTransientDocument(code, payloadType);
         var completionService = CompletionService.GetService(document);
         if (completionService == null) return [];
 
-        var completions = await completionService.GetCompletionsAsync(document, cursorPosition);
+        var completions = await completionService.GetCompletionsAsync(document, cursorPosition, cancellationToken: token);
         if (completions.ItemsList.Count == 0) return [];
 
         return completions.ItemsList.Select(item => new LspCompletionItem(
@@ -86,21 +87,22 @@ public class CSharpLspProvider : ILspProvider
         ));
     }
 
-    public async Task<IEnumerable<LspDiagnostic>> GetDiagnosticsAsync(string code, string payloadType)
+    public async Task<IEnumerable<LspDiagnostic>> GetDiagnosticsAsync(string code, string payloadType, CancellationToken token)
     {
         var document = CreateTransientDocument(code, payloadType);
         
-        var syntaxTree = await document.GetSyntaxTreeAsync();
-        var syntaxDiags = syntaxTree?.GetDiagnostics() ?? [];
+        var compilation = await document.Project.GetCompilationAsync(token);
+        if (compilation == null) return [];
 
-        var semanticModel = await document.GetSemanticModelAsync();
-        var semanticDiags = semanticModel?.GetDiagnostics() ?? Enumerable.Empty<Diagnostic>();
+        var allDiagnostics = compilation.GetDiagnostics(token);
 
-        return syntaxDiags.Concat(semanticDiags).Select(d => new LspDiagnostic(
-            From: d.Location.SourceSpan.Start,
-            To: d.Location.SourceSpan.End,
-            Message: d.GetMessage(),
-            Severity: d.Severity.ToString().ToLower()
-        ));
+        return allDiagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error || d.Severity == DiagnosticSeverity.Warning)
+            .Select(d => new LspDiagnostic(
+                From: d.Location.SourceSpan.Start,
+                To: d.Location.SourceSpan.End,
+                Message: d.GetMessage(),
+                Severity: d.Severity.ToString().ToLower()
+            ));
     }
 }

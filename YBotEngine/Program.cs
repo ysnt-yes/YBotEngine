@@ -57,16 +57,17 @@ app.MapPost("/api/lsp", async (
     [FromQuery] string lang, 
     [FromQuery] string session, 
     [FromBody] LspQueryPayload payload,
-    LspService lspService) =>
+    LspService lspService,
+    HttpContext context) =>
 {
     try
     {
         var provider = lspService.GetProvider(lang);
 
-        lspService.UpdateSessionText(session, payload.Code, payload.PayloadType);
+        var token = lspService.UpdateSessionTextAndGetToken(session, payload.Code, payload.PayloadType, context.RequestAborted);
 
-        var completionsTask = provider.GetCompletionsAsync(payload.Code, payload.CursorPosition, payload.PayloadType);
-        var diagnosticsTask = provider.GetDiagnosticsAsync(payload.Code, payload.PayloadType);
+        var completionsTask = provider.GetCompletionsAsync(payload.Code, payload.CursorPosition, payload.PayloadType, token);
+        var diagnosticsTask = provider.GetDiagnosticsAsync(payload.Code, payload.PayloadType, token);
 
         await Task.WhenAll(completionsTask, diagnosticsTask);
 
@@ -75,6 +76,10 @@ app.MapPost("/api/lsp", async (
             completions = completionsTask.Result,
             errors = diagnosticsTask.Result
         });
+    }
+    catch (OperationCanceledException)
+    {
+        return Results.StatusCode(StatusCodes.Status499ClientClosedRequest);
     }
     catch (NotSupportedException ex)
     {
@@ -101,7 +106,7 @@ app.MapPost("/api/scripts/save", async (
             return Results.BadRequest(new { error = "Script code body cannot be empty." });
         }
 
-        await eventManager.RegisterScriptAsync(
+        await eventManager.RegisterOrUpdateScriptAsync(
             eventName: request.EventName,
             scriptName: request.ScriptId,
             script: request.Code,

@@ -122,4 +122,14 @@ public class UserEventManager(
 
         return bridge;
     }
+
+    public async Task RegisterOrUpdateScriptAsync(string eventName, string scriptName, string script,
+        CompilerType compilerType)
+    {
+        if (_registeredScripts.ContainsKey(scriptName))
+        {
+            await UnregisterScriptAsync(scriptName);
+        }
+        await RegisterScriptAsync(eventName, scriptName, script, compilerType);
+    }
 }

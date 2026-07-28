@@ -12,6 +12,6 @@
 
 <style>
 	html, body {
-		background-color: var(--violet-3)
+		background-color: var(--violet-)
 	}
 </style>

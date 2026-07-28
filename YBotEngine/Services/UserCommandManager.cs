@@ -41,10 +41,10 @@ public class UserCommandManager
         var contextType = typeof(DiscordRoslynScriptContext<ApplicationCommandContext>);
         
         _executionScripts[triggerKey] = await compiler.CompileAsync(scriptBody, contextType);
-        _logger.LogInformation("RAM Hot-Swap successful for script path: /{Path}", triggerKey.Replace(":", " "));
+        _logger.LogInformation("Hot-Swap successful for script path: /{Path}", triggerKey.Replace(":", " "));
     }
 
-    public async Task SyncGuildCommandTreeAsync(string rootName, List<UserScript> associatedScripts, ulong guildId)
+    public async Task SyncCommandTreeAsync(string rootName, List<UserScript> associatedScripts, ulong? guildId)
     {
         EnsureProxyRoutesMounted(rootName, associatedScripts);
 
@@ -97,8 +97,15 @@ public class UserCommandManager
             DefaultGuildPermissions = rootScript?.RequiredGuildPermissions
         };
 
-        var appId = _client.Id; 
-        await _client.Rest.CreateGuildApplicationCommandAsync(appId, guildId, finalProperties);
+        var appId = _client.Id;
+        if (guildId.HasValue)
+        {
+            await _client.Rest.CreateGuildApplicationCommandAsync(appId, (ulong)guildId, finalProperties);
+        }
+        else
+        {
+            await _client.Rest.CreateGlobalApplicationCommandAsync(appId, finalProperties);
+        }
         _logger.LogInformation("Pushed dynamic structure tree layout for root: /{RootName} to Discord.", rootName);
     }
 

@@ -1,247 +1,266 @@
 ﻿<script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { EditorState, Compartment } from '@codemirror/state';
-    import { EditorView, lineNumbers } from '@codemirror/view';
-    import { autocompletion } from '@codemirror/autocomplete';
-    import { linter } from '@codemirror/lint';
-    import { csharp } from '@replit/codemirror-lang-csharp';
-    import * as themes from '@uiw/codemirror-themes-all';
-    import { Select } from 'bits-ui';
+	import { onMount, onDestroy } from 'svelte';
+	import { EditorState, Compartment } from '@codemirror/state';
+	import { EditorView, lineNumbers } from '@codemirror/view';
+	import { autocompletion } from '@codemirror/autocomplete';
+	import { linter } from '@codemirror/lint';
+	import { csharp } from '@replit/codemirror-lang-csharp';
+	import * as themes from '@uiw/codemirror-themes-all';
 
-    import { editorCache } from '$lib/editorCache';
+	import { type ApiEventsResponse, type ApiLspResponse, type ScriptTab } from '$lib/api';
 
-    interface Props {
-        documentName: string;
-    }
-    let { documentName }: Props = $props();
+	let {
+		tab = $bindable(),
+		events = [],
+		isLoading = false,
+		onSave = async () => {}
+	}: {
+		tab: ScriptTab;
+		events: ApiEventsResponse[];
+		isLoading: boolean;
+		onSave?: () => Promise<void> | void;
+	} = $props();
 
-    let editorElement = $state<HTMLElement | null>(null);
-    let view: EditorView | null = null;
-    const themeCompartment = new Compartment();
+	let editorElement = $state<HTMLElement | null>(null);
+	let view: EditorView | null = null;
+	const themeCompartment = new Compartment();
+	let isSaving = $state<boolean>(false);
 
-    let events = $state<Array<{ name: string; payloadType: string }>>([]);
-    let selectedEventName = $state('');
-    let selectedPayloadType = $state('');
-    let isLoading = $state(true);
-    let isSaving = $state(false);
-    let userSessionId = $state('');
+	let fullSessionKey = $derived(`${tab.eventName}_${tab.id}`);
 
-    let currentThemeId = $state(
-        (typeof window !== 'undefined' && localStorage.getItem('codemirror_theme')) || 'oneDark'
-    );
+	let currentThemeId = $state<string>(
+		(typeof window !== 'undefined' && localStorage.getItem('codemirror_theme')) || 'oneDark'
+	);
 
-    const cleanThemesList = Object.keys(themes)
-        .filter(key => key !== 'default' && typeof themes[key] !== 'function' && !/(style|settings|init)/i.test(key))
-        .sort()
-        .map(key => ({ id: key, name: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()) }));
+	const cleanThemesList = Object.keys(themes)
+		.filter((key) => {
+			if (key === 'default' || typeof (themes as any)[key] === 'function') return false;
+			if (/(style|settings|init)/i.test(key)) return false;
+			return true;
+		})
+		.sort()
+		.map((key) => ({
+			id: key,
+			name: key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
+		}));
 
-    const fullSessionKey = $derived(`${userSessionId}_${documentName}`);
+	$effect(() => {
+		if (editorElement && !view) {
+			initEditor();
+		}
+	});
 
-    const isCurrentFileDirty = $derived(editorCache.get(documentName)?.isDirty ?? false);
+	const lspAutocomplete = autocompletion({
+		activateOnTyping: true,
+		override: [
+			async (context) => {
+				const match = context.matchBefore(/\w+$/) || context.matchBefore(/\.\w*$/);
+				if (!context.explicit && !match) return null;
+				if (!context.explicit && match && match.text.length < 2 && !context.matchBefore(/\.\w*$/))
+					return null;
 
-    let currentEventLabel = $derived(events.find(e => e.payloadType === selectedPayloadType)?.name || 'Select Event...');
-    let currentThemeLabel = $derived(cleanThemesList.find(t => t.id === currentThemeId)?.name || 'Select Theme...');
+				return {
+					from: match ? match.from : context.pos,
+					options: tab.lspData.completions,
+					validForChars: /^[\w]$/
+				};
+			}
+		]
+	});
 
-    $effect(() => {
-        if (documentName) {
-            loadDocumentWorkspace(documentName);
-        }
-    });
+	const lspLinter = linter(() => {
+		return tab.lspData.errors;
+	});
 
-    async function loadDocumentWorkspace(scriptId: string) {
-        isLoading = true;
-        const cachedFile = editorCache.get(scriptId);
+	const stateUpdater = EditorView.updateListener.of((update) => {
+		if (update.docChanged || update.selectionSet) {
+			tab.docText = update.state.doc.toString();
+			tab.cursorPosition = update.state.selection.main.head;
+		}
+	});
 
-        if (cachedFile) {
-            initEditor(cachedFile.targetEvent, cachedFile.codeText);
-            isLoading = false;
-            return;
-        }
+	let extensions = $derived([
+		themeCompartment.of((themes as any)[currentThemeId] || []),
+		csharp(),
+		lspAutocomplete,
+		lspLinter,
+		stateUpdater,
+		lineNumbers()
+	]);
 
-        try {
-            const res = await fetch(`/api/scripts/${scriptId}`);
-            const data = await res.json();
+	$effect(() => {
+		if (view && tab.id) {
+			if (view.state.doc.toString() !== tab.docText) {
+				const newState = EditorState.create({
+					doc: tab.docText,
+					extensions: extensions
+				});
 
-            editorCache.set(scriptId, {
-                scriptId: data.scriptId,
-                codeText: data.initialCode,
-                targetEvent: data.eventName
-            });
+				view.setState(newState);
 
-            initEditor(data.eventName, data.initialCode);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            isLoading = false;
-        }
-    }
+				view.dispatch({
+					selection: { anchor: tab.cursorPosition }
+				});
+			}
+		}
+	});
 
-    onMount(async () => {
-        userSessionId = crypto.randomUUID();
-        try {
-            const res = await fetch(`${apiBaseUrl}/api/events`);
-            events = await res.json();
-            if (events.length > 0 && !selectedPayloadType) {
-                selectedEventName = events[0].name;
-                selectedPayloadType = events[0].payloadType;
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    });
+	$effect(() => {
+		if (currentThemeId) localStorage.setItem('codemirror_theme', currentThemeId);
+	});
 
-    onDestroy(() => {
-        if (view) view.destroy();
-    });
+	$effect(() => {
+		if (view && currentThemeId) {
+			const target = (themes as any)[currentThemeId];
+			if (target) view.dispatch({ effects: themeCompartment.reconfigure(target) });
+		}
+	});
 
-    $effect(() => {
-        if (view && currentThemeId) {
-            const targetThemeExport = (themes as any)[currentThemeId];
-            if (targetThemeExport) {
-                const resolvedExtension = typeof targetThemeExport === 'function' ? targetThemeExport() : targetThemeExport;
-                const validExtension = resolvedExtension?.extension || resolvedExtension?.theme || resolvedExtension;
-                view.dispatch({ effects: themeCompartment.reconfigure(validExtension) });
-            }
-        }
-    });
+	$effect(() => {
+		const textToQuery = tab.docText;
+		const cursorPos = tab.cursorPosition;
+		const payload = tab.payloadType;
 
-    $effect(() => {
-        if (currentThemeId) {
-            localStorage.setItem('codemirror_theme', currentThemeId);
-        }
-    });
+		if (!textToQuery || !payload) return;
 
-    function initEditor(eventName: string, initialCodeText: string) {
-        if (view) view.destroy();
-        if (!editorElement) return;
+		const timer = setTimeout(async () => {
+			try {
+				const response = await fetch(`/api/lsp?lang=csharp&session=${fullSessionKey}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						code: textToQuery,
+						cursorPosition: cursorPos,
+						payloadType: payload
+					})
+				});
 
-        const lspAutocomplete = autocompletion({
-            activateOnTyping: true,
-            override: [async (context) => {
-                const match = context.matchBefore(/\w+$/) || context.matchBefore(/\.\w*$/);
-                if (!context.explicit && !match) return null;
-                try {
-                    const response = await fetch(`${apiBaseUrl}/api/lsp?lang=csharp&session=${fullSessionKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ code: context.state.doc.toString(), cursorPosition: context.pos, payloadType: selectedPayloadType })
-                    });
-                    const data = await response.json();
-                    return {
-                        from: match ? match.from : context.pos,
-                        options: data.completions.map((c: any) => ({ label: c.label, type: c.type, detail: c.detail })),
-                        validForChars: /^[\w]$/
-                    };
-                } catch (err) { return null; }
-            }]
-        });
+				const data: ApiLspResponse = await response.json();
 
-        const lspLinter = linter(async (editorView) => {
-            try {
-                const response = await fetch(`${apiBaseUrl}/api/lsp?lang=csharp&session=${fullSessionKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code: editorView.state.doc.toString(), cursorPosition: editorView.state.selection.main.head, payloadType: selectedPayloadType })
-                });
-                const data = await response.json();
-                return data.errors.map((err: any) => ({ from: err.from, to: err.to, severity: err.severity === 'error' ? 'error' : 'warning', message: err.message }));
-            } catch (err) { return []; }
-        }, { delay: 400 });
+				tab.lspData = {
+					completions: (data.completions || []).map((c) => ({
+						label: c.label,
+						type: c.type,
+						detail: c.detail
+					})),
+					errors: (data.errors || []).map((err) => ({
+						from: Number(err.from),
+						to: Number(err.to),
+						severity: err.severity === 'error' ? 'error' : 'warning',
+						message: err.message
+					}))
+				};
+			} catch (err) {
+				console.error('LSP Tab sync failure:', err);
+			}
+		}, 250);
 
-        const targetThemeExport = (themes as any)[currentThemeId];
-        const initialThemeExtension = typeof targetThemeExport === 'function' ? targetThemeExport() : targetThemeExport;
+		return () => clearTimeout(timer);
+	});
 
-        view = new EditorView({
-            state: EditorState.create({
-                doc: initialCodeText,
-                extensions: [
-                    themeCompartment.of(initialThemeExtension || []),
-                    csharp(),
-                    lspAutocomplete,
-                    lspLinter,
-                    lineNumbers(),
-                    EditorView.updateListener.of((update) => {
-                        if (update.docChanged) {
-                            editorCache.updateCode(documentName, update.state.doc.toString());
-                        }
-                    })
-                ]
-            }),
-            parent: editorElement
-        });
-    }
+	function initEditor() {
+		if (!editorElement) return;
 
-    function handleEventChange(value: string | undefined) {
-        if (!value) return;
-        const matched = events.find(ev => ev.payloadType === value);
-        if (matched) {
-            selectedEventName = matched.name;
-            selectedPayloadType = matched.payloadType;
-        }
-    }
+		view = new EditorView({
+			state: EditorState.create({
+				doc: tab.docText,
+				extensions: extensions
+			}),
+			parent: editorElement
+		});
+	}
 
-    async function handleSave() {
-        if (!view) return;
-        isSaving = true;
-        const cleanCodeBody = view.state.doc.toString();
-        try {
-            await fetch(`${apiBaseUrl}/api/scripts/save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scriptId: documentName, eventName: selectedEventName, code: cleanCodeBody })
-            });
-            editorCache.markClean(documentName);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            isSaving = false;
-        }
-    }
+	function handleEventChange(e: Event) {
+		const target = e.target as HTMLSelectElement;
+		const matched = events.find((ev) => ev.payloadType === target.value);
+		if (matched) {
+			tab.eventName = matched.name;
+			tab.payloadType = matched.payloadType;
+		}
+	}
+
+	async function handleSaveClick() {
+		isSaving = true;
+		try {
+			if (onSave) await onSave();
+		} finally {
+			isSaving = false;
+		}
+	}
+
+	onDestroy(() => {
+		if (view) view.destroy();
+	});
 </script>
 
 <div class="editor-wrapper">
-    <header class="editor-header">
+	<header class="editor-header">
+		<div class="controls-left">
+			<label for="event-select">⚡ Event Context:</label>
+			{#if isLoading}
+				<select id="event-select" disabled><option>Loading...</option></select>
+			{:else}
+				<select id="event-select" value={tab.payloadType} onchange={handleEventChange}>
+					{#each events as ev (ev.name)}
+						<option value={ev.payloadType}>{ev.name}</option>
+					{/each}
+				</select>
+			{/if}
 
-        <div class="select-group">
-            <span>⚡ Event:</span>
-            <Select.Root type="single" disabled={isLoading} value={selectedPayloadType} onValueChange={handleEventChange}>
-                <Select.Trigger>
-                    {currentEventLabel}
-                </Select.Trigger>
-                <Select.Content>
-                    {#each events as ev}
-                        <Select.Item value={ev.payloadType} label={ev.name}>
-                            {ev.name}
-                        </Select.Item>
-                    {/each}
-                </Select.Content>
-            </Select.Root>
-        </div>
+			<label for="theme-select" class="theme-label">🎨 Theme:</label>
+			<select id="theme-select" bind:value={currentThemeId}>
+				{#each cleanThemesList as theme (theme.id)}
+					<option value={theme.id}>{theme.name}</option>
+				{/each}
+			</select>
+		</div>
 
-        <div class="select-group">
-            <span>🎨 Theme:</span>
-            <Select.Root type="single" value={currentThemeId} onValueChange={(val) => { if(val) currentThemeId = val; }}>
-                <Select.Trigger>
-                    {currentThemeLabel}
-                </Select.Trigger>
-                <Select.Content>
-                    {#each cleanThemesList as theme}
-                        <Select.Item value={theme.id} label={theme.name}>
-                            {theme.name}
-                        </Select.Item>
-                    {/each}
-                </Select.Content>
-            </Select.Root>
-        </div>
+		<button class="save-btn" onclick={handleSaveClick} disabled={isSaving || isLoading}>
+			{isSaving ? 'Saving...' : `Save Script`}
+		</button>
+	</header>
 
-        <button onclick={handleSave} disabled={isSaving || isLoading}>
-            {#if isSaving}
-                Saving...
-            {:else}
-                Save Script {isCurrentFileDirty ? '*' : ''}
-            {/if}
-        </button>
-    </header>
-
-    <div bind:this={editorElement}></div>
+	<div class="editor-container" bind:this={editorElement}></div>
 </div>
+
+<style>
+	.editor-wrapper {
+		border: 1px solid #1c1e22;
+		border-radius: 0 0 6px 6px;
+		overflow: hidden;
+		background: #282c34;
+	}
+	.editor-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		background: #282c34;
+		padding: 10px;
+		color: white;
+		border-bottom: 1px solid #1c1e22;
+	}
+	.controls-left {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.theme-label {
+		margin-left: 15px;
+	}
+	.editor-container {
+		display: block;
+		min-height: 350px;
+	}
+	.save-btn {
+		padding: 6px 14px;
+		background: #4c97ff;
+		border: none;
+		color: white;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+	.save-btn:disabled {
+		background: #5c6370;
+		cursor: not-allowed;
+	}
+</style>

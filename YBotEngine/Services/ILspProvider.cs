@@ -2,8 +2,8 @@
 
 public interface ILspProvider
 {
-    Task<IEnumerable<LspCompletionItem>> GetCompletionsAsync(string code, int cursorPosition, string payloadType);
-    Task<IEnumerable<LspDiagnostic>> GetDiagnosticsAsync(string code, string payloadType);
+    Task<IEnumerable<LspCompletionItem>> GetCompletionsAsync(string code, int cursorPosition, string payloadType, CancellationToken token);
+    Task<IEnumerable<LspDiagnostic>> GetDiagnosticsAsync(string code, string payloadType, CancellationToken token);
 }
 
 public record LspCompletionItem(string Label, string Type, string Detail = "");
