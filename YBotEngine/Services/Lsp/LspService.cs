@@ -1,7 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace YBotEngine.Services;
+namespace YBotEngine.Services.Lsp;
 
 public class LspService(IServiceProvider serviceProvider)
 {

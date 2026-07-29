@@ -2,13 +2,13 @@
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Extensions.Logging;
-using YBotEngine.Runners.Abstractions;
+using YScriptEngine.Abstractions;
 
-namespace YBotEngine.Runners.Roslyn;
+namespace YScriptEngine.Roslyn;
 
 public class RoslynCompiler(ScriptOptions globalOptions, ILogger<RoslynCompiler> logger) : ICompiler
 {
-    public Task<IRunner> CompileAsync(string scriptCode, Type contextType)
+    public Task<IScript> CompileAsync(string scriptCode, Type contextType)
 {
     try
     {
@@ -62,11 +62,11 @@ public class RoslynCompiler(ScriptOptions globalOptions, ILogger<RoslynCompiler>
             }
         }
 
-        return Task.FromResult<IRunner>(new RoslynRunner(script.CreateDelegate()));
+        return Task.FromResult<IScript>(new RoslynScript(script.CreateDelegate()));
     }
     catch (Exception exception)
     {
-        return Task.FromException<IRunner>(exception);
+        return Task.FromException<IScript>(exception);
     }
 }
 

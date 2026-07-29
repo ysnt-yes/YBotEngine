@@ -1,11 +1,12 @@
-﻿using YBotEngine.Runners.Abstractions;
+﻿
+using YScriptEngine.Abstractions;
 
 namespace YBotEngine.Data;
 
-public class DiscordRoslynScriptContext<TPayload>(TPayload payload, IServiceProvider serviceProvider) : IRunnerContext
+public class RoslynScriptContext<TPayload>(TPayload payload, IServiceProvider serviceProvider) : IScriptContext
 {
-    private IServiceProvider ServiceProvider { get; init; } = serviceProvider;
-    public TPayload Data { get; init; } = payload;
+    private IServiceProvider ServiceProvider { get; } = serviceProvider;
+    public TPayload Data { get; } = payload;
 
     public T GetService<T>() where T : notnull
     {
@@ -13,4 +14,4 @@ public class DiscordRoslynScriptContext<TPayload>(TPayload payload, IServiceProv
     }
 }
 
-public struct EmptyPayload {}
+public readonly struct EmptyPayload {}

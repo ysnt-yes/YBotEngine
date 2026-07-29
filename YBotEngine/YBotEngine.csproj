@@ -31,7 +31,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\YBotEngine.Runners.Roslyn\YBotEngine.Runners.Roslyn.csproj" />
+        <ProjectReference Include="..\YScriptEngine.Roslyn\YScriptEngine.Roslyn.csproj" />
     </ItemGroup>
 
     <ItemGroup>

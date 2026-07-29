@@ -7,7 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\YBotEngine.Runners.Abstractions\YBotEngine.Runners.Abstractions.csproj" />
+      <ProjectReference Include="..\YScriptEngine.Abstractions\YScriptEngine.Abstractions.csproj" />
     </ItemGroup>
 
     <ItemGroup>

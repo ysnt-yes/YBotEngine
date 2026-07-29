@@ -1,4 +1,4 @@
-﻿namespace YBotEngine.Services;
+﻿namespace YBotEngine.Services.Lsp;
 
 public interface ILspProvider
 {

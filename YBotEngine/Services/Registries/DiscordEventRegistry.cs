@@ -1,7 +1,7 @@
 ﻿using System.Reflection;
 using NetCord.Gateway;
 
-namespace YBotEngine.Services;
+namespace YBotEngine.Services.Registries;
 
 public class DiscordEventRegistry
 {

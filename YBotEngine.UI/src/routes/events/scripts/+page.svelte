@@ -8,17 +8,16 @@
 
     let tabs = $state<ScriptTab[]>([
         {
-            id: 'script_abc123',
-            title: 'AuthHandler.cs',
-            eventName: 'MessageCreated',
+            id: `script_${crypto.randomUUID().slice(0, 8)}.cs`,
+            eventName: 'MessageCreate',
             payloadType: 'Message',
-            docText: '// Context: UserLogin\n',
+            docText: `// Context: MessageCreate\nawait Data.ReplyAsync($"Hello {Data.Author.GlobalName}!");`,
             cursorPosition: 0,
             lspData: { completions: [], errors: [] }
         }
     ]);
     
-    let activeTabId = $state<string>('script_abc123');
+    let activeTabId = $state<string>(tabs[0].id);
 
     let activeTabIdx = $derived(tabs.findIndex(t => t.id === activeTabId));
     let activeTab = $derived(tabs[activeTabIdx]);
@@ -35,15 +34,14 @@
     });
 
     function addNewTab() {
-        const id = `script_${crypto.randomUUID().slice(0, 8)}`;
-        const fallbackEvent = events[0] || { name: 'MessageCreated', payloadType: 'Message' };
+        const id = `script_${crypto.randomUUID().slice(0, 8)}.cs`;
+        const fallbackEvent = { name: 'MessageCreate', payloadType: 'Message' };
         
         tabs.push({
             id,
-            title: `ScriptModule_${tabs.length + 1}.cs`,
             eventName: fallbackEvent.name,
             payloadType: fallbackEvent.payloadType,
-            docText: `// Context: ${fallbackEvent.name}\n`,
+            docText: `// Context: ${fallbackEvent.name}\nawait Data.ReplyAsync($"Hello {Data.Author.GlobalName}! (${id})");`,
             cursorPosition: 0,
             lspData: { completions: [], errors: [] }
         });
@@ -68,7 +66,7 @@
     async function handleSaveActiveScript() {
         if (!activeTab) return;
         try {
-            await fetch('/api/scripts/save', {
+            let result = await fetch('/api/events/scripts/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -77,7 +75,12 @@
                     code: activeTab.docText
                 })
             });
-            alert(`Successfully saved ${activeTab.title}!`);
+            if (result.status === 200) {
+                alert(`Successfully saved ${activeTab.id}!`);    
+            }
+            else {
+                alert(`Failed to save script: ${result.status}`);
+            }
         } catch (err) {
             console.error('Save routine crashed:', err);
         }
@@ -100,7 +103,7 @@
                 tabindex="0"
                 onkeydown={(e) => e.key === 'Enter' && (activeTabId = tab.id)}
             >
-                <span>📄 {tab.title}</span>
+                <span>📄 {tab.id}</span>
                 <button class="close-btn" onclick={(e) => closeTab(tab.id, e)} aria-label="Close tab">×</button>
             </div>
         {/each}

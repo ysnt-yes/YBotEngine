@@ -27,7 +27,7 @@ public class UserScript
     public string TriggerKey { get; set; } = string.Empty; 
 
     [Required] 
-    public CompilerType CompilerType { get; set; } = CompilerType.Roslyn;
+    public string CompilerType { get; set; } = "csharp";
     
     [Required] 
     public string Body { get; set; } = string.Empty;

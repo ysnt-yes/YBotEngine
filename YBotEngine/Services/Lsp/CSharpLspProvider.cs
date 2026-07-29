@@ -6,35 +6,21 @@ using Microsoft.CodeAnalysis.Recommendations;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.Text;
 using YBotEngine.Data;
+using YBotEngine.Services.Registries;
+using YScriptEngine.Abstractions;
 
-namespace YBotEngine.Services;
+namespace YBotEngine.Services.Lsp;
 
-public class CSharpLspProvider : ILspProvider
+public class CSharpLspProvider(ScriptOptions sharedScriptOptions) : ILspProvider
 {
     private readonly ConcurrentDictionary<string, (Solution Solution, ProjectId ProjectId)> _baseCache = new();
-    private readonly ScriptOptions _sharedScriptOptions;
 
-    public CSharpLspProvider(ScriptOptions sharedScriptOptions, DiscordEventRegistry registry)
+    public void PreCacheBaseSolution(Type payloadType)
     {
-        _sharedScriptOptions = sharedScriptOptions;
-
-        foreach (var payloadType in registry.AvailableEvents.Values.Select(r => r.payloadType).Distinct())
-        {
-            PreCacheBaseSolution(payloadType);
-        }
-    }
-
-    private void PreCacheBaseSolution(Type payloadType)
-    {
-        var isVoid = payloadType == typeof(void) || payloadType.FullName == "System.Void";
-        var typeKey = isVoid ? "void" : payloadType.Name;
-        
         using var workspace = new AdhocWorkspace();
-        var compileTimeType = isVoid ? typeof(EmptyPayload) : payloadType;
-        var globalHostType = typeof(DiscordRoslynScriptContext<>).MakeGenericType(compileTimeType);
         
         var compilationOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, scriptClassName: "Submission#0", concurrentBuild: false, metadataImportOptions: MetadataImportOptions.Public)
-            .WithUsings(_sharedScriptOptions.Imports);
+            .WithUsings(sharedScriptOptions.Imports);
             
         var parseOptions = new CSharpParseOptions(
             LanguageVersion.Latest, 
@@ -45,17 +31,17 @@ public class CSharpLspProvider : ILspProvider
         var projectInfo = ProjectInfo.Create(
             id: projectId, 
             version: VersionStamp.Create(), 
-            name: $"Project_{typeKey}", 
-            assemblyName: $"Assembly_{typeKey}",
+            name: $"Project_{payloadType.Name}", 
+            assemblyName: $"Assembly_{payloadType.Name}",
             language: LanguageNames.CSharp, 
             compilationOptions: compilationOptions, 
             parseOptions: parseOptions,
-            metadataReferences: _sharedScriptOptions.MetadataReferences, 
+            metadataReferences: sharedScriptOptions.MetadataReferences, 
             isSubmission: true, 
-            hostObjectType: globalHostType
+            hostObjectType: payloadType
         );
 
-        _baseCache[typeKey] = (workspace.CurrentSolution.AddProject(projectInfo), projectId);
+        _baseCache[payloadType.Name] = (workspace.CurrentSolution.AddProject(projectInfo), projectId);
     }
 
     private Document CreateTransientDocument(string code, string payloadType)

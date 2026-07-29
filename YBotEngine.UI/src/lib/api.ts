@@ -28,7 +28,6 @@ export type ApiEventsResponse = {
 
 export type ScriptTab = {
     id: string;
-    title: string;
     eventName: string;
     payloadType: string;
     docText: string;
