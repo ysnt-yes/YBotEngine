@@ -11,13 +11,20 @@ using YScriptEngine.Abstractions;
 
 namespace YBotEngine.Services.Lsp;
 
-public class CSharpLspProvider(ScriptOptions sharedScriptOptions) : ILspProvider
+public class CSharpLspProvider(ScriptOptions sharedScriptOptions, ILogger<CSharpLspProvider> logger) : ILspProvider
 {
     private readonly ConcurrentDictionary<string, (Solution Solution, ProjectId ProjectId)> _baseCache = new();
 
     public void PreCacheBaseSolution(Type payloadType)
     {
         using var workspace = new AdhocWorkspace();
+        var typeName = payloadType.Name;
+        if (payloadType.IsGenericType)
+        {
+            typeName = payloadType.GetGenericArguments()[0].Name;
+        }
+        
+        logger.LogDebug("Registering Type: {TypeName}", typeName);
         
         var compilationOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, scriptClassName: "Submission#0", concurrentBuild: false, metadataImportOptions: MetadataImportOptions.Public)
             .WithUsings(sharedScriptOptions.Imports);
@@ -31,8 +38,8 @@ public class CSharpLspProvider(ScriptOptions sharedScriptOptions) : ILspProvider
         var projectInfo = ProjectInfo.Create(
             id: projectId, 
             version: VersionStamp.Create(), 
-            name: $"Project_{payloadType.Name}", 
-            assemblyName: $"Assembly_{payloadType.Name}",
+            name: $"Project_{typeName}", 
+            assemblyName: $"Assembly_{typeName}",
             language: LanguageNames.CSharp, 
             compilationOptions: compilationOptions, 
             parseOptions: parseOptions,
@@ -41,7 +48,7 @@ public class CSharpLspProvider(ScriptOptions sharedScriptOptions) : ILspProvider
             hostObjectType: payloadType
         );
 
-        _baseCache[payloadType.Name] = (workspace.CurrentSolution.AddProject(projectInfo), projectId);
+        _baseCache[typeName] = (workspace.CurrentSolution.AddProject(projectInfo), projectId);
     }
 
     private Document CreateTransientDocument(string code, string payloadType)
