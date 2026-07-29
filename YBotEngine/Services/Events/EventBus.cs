@@ -11,6 +11,8 @@ public interface IEventBus
 
 public class EventBus : IEventBus
 {
+    private readonly ILogger<EventBus> _logger;
+
     private readonly Channel<object> _busChannel = Channel.CreateUnbounded<object>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -20,8 +22,9 @@ public class EventBus : IEventBus
     private readonly ConcurrentDictionary<Type, List<Func<object, CancellationToken, Task>>> _subscribers = new();
     private readonly CancellationTokenSource _cts = new();
 
-    public EventBus()
+    public EventBus(ILogger<EventBus> logger)
     {
+        _logger = logger;
         Task.Run(() => ProcessEventLoopAsync(_cts.Token));
     }
 
@@ -39,6 +42,7 @@ public class EventBus : IEventBus
         {
             handlersList.Add((msg, token) => handler((T)msg, token));
         }
+        _logger.LogInformation($"{type.Name} subscribed");
     }
 
     private async Task ProcessEventLoopAsync(CancellationToken token)

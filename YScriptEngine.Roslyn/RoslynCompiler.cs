@@ -25,8 +25,8 @@ public class RoslynCompiler(ScriptOptions globalOptions, ILogger<RoslynCompiler>
             .Distinct()!;
 
         var runtimeOptions = globalOptions
-            .WithReferences(assemblies)
-            .WithImports(namespaces!);
+            .AddReferences(assemblies)
+            .AddImports(namespaces!);
 
         var script = CSharpScript.Create(scriptCode, runtimeOptions, globalsType: contextType);
     

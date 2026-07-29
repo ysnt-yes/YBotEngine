@@ -1,5 +1,7 @@
 using NetCord.Gateway;
 using NetCord.Hosting.Gateway;
+using NetCord.Hosting.Services.ApplicationCommands;
+using NetCord.Rest;
 using NetCord.Services.ApplicationCommands;
 using YBotEngine.Data;
 using YBotEngine.Extensions;
@@ -10,6 +12,7 @@ using YBotEngine.Services.Events;
 using YBotEngine.Services.Lsp;
 using YBotEngine.Services.Registries;
 using YScriptEngine.Abstractions;
+using YScriptEngine.NodeGraph;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,11 +29,24 @@ builder.Services.AddDefaultScriptOptions();
 builder.Services.AddKeyedSingleton<ICompiler, RoslynCompiler>("csharp");
 builder.Services.AddSingleton<IScriptContextFactory, ScriptContextFactory>();
 
+builder.Services.AddSingleton<INodeRegistry, NodeRegistry>();
+builder.Services.AddKeyedSingleton<ICompiler, NodeToRoslynCompiler>("node_graph", (sp, key) =>
+{
+    var baseCsharpCompiler = sp.GetRequiredKeyedService<ICompiler>("csharp");
+    var activeRegistry = sp.GetRequiredService<INodeRegistry>();
+    
+    return new NodeToRoslynCompiler(baseCsharpCompiler, activeRegistry);
+});
+
 builder.Services.AddSingleton<DiscordEventRegistry>();
 builder.Services.AddSingleton<SlashCommandRegistry>();
 
+builder.Services.AddSingleton<InteractionInterceptor>();
+
+builder.Services.AddSingleton<CommandRegistrationService>();
+
 builder.Services.AddSingleton<EventScriptManager>();
-builder.Services.AddSingleton<SlashCommandScriptManager<SlashCommandContext>>();
+builder.Services.AddSingleton<SlashCommandScriptManager>();
 
 builder.Services.AddSingleton<IEventBus, EventBus>();
 builder.Services.AddSingleton<GatewayEventBus>();
@@ -55,8 +71,16 @@ app.MapFallbackToFile("index.html");
 
 app.AddApiRoutes();
 
-var commandService = app.Services.GetRequiredService<ApplicationCommandService<SlashCommandContext>>();
-commandService.AddModules(typeof(Program).Assembly);
+app.AddSlashCommandToService("fromservice", "This one is from the service",
+    async (SlashCommandContext context) =>
+    {
+        await context.Interaction.SendResponseAsync(InteractionCallback.Message("This is from the service"));
+    });
+
+const string testScript = "await Data.Interaction.SendResponseAsync(InteractionCallback.Message(\"This is from the script manager\"));";
+
+var slashCommandManager = app.Services.GetRequiredService<SlashCommandScriptManager>();
+await slashCommandManager.CompileAndRegisterScriptAsync("test", testScript, "csharp");
 
 var registry = app.Services.GetRequiredService<DiscordEventRegistry>();
 var roslynLsp = (CSharpLspProvider)app.Services.GetRequiredKeyedService<ILspProvider>("csharp");
@@ -70,7 +94,13 @@ foreach (var payloadType in registry.AvailableEvents.Values.Select(r => r.payloa
     roslynLsp.PreCacheBaseSolution(globalHostType);
 }
 
+
 _ = app.Services.GetRequiredService<GatewayEventBus>();
+_ = app.Services.GetRequiredService<IEventBus>();
+_ = app.Services.GetRequiredService<InteractionInterceptor>();
+
+var registration = app.Services.GetRequiredService<CommandRegistrationService>();
+await registration.SyncCommandsAsync();
 
 
 app.Run();

@@ -8,14 +8,14 @@ namespace YBotEngine.Services.Events;
 
 public class InteractionInterceptor
 {
-    private readonly SlashCommandScriptManager<SlashCommandContext> _scriptManager;
+    private readonly SlashCommandScriptManager _scriptManager;
     private readonly ApplicationCommandService<SlashCommandContext> _nativeCommandService;
     private readonly GatewayClient _gatewayClient;
     private readonly ILogger<InteractionInterceptor> _logger;
 
     public InteractionInterceptor(
         IEventBus eventBus,
-        SlashCommandScriptManager<SlashCommandContext> scriptManager,
+        SlashCommandScriptManager scriptManager,
         ApplicationCommandService<SlashCommandContext> nativeCommandService,
         GatewayClient gatewayClient, ILogger<InteractionInterceptor> logger)
     {
@@ -29,19 +29,52 @@ public class InteractionInterceptor
 
     private async Task OnBusEventReceivedAsync(GatewayBusEvent evt, CancellationToken token)
     {
-        if (evt.Data is not SlashCommandInteraction slashInteraction) return;
-
-        var context = new SlashCommandContext(slashInteraction, _gatewayClient);
-
-        var lookupPathKey = _scriptManager.GetFlattenedCommandKey(context);
-
-        if (_scriptManager.HasActiveRunner(lookupPathKey))
+        if (evt.Data is not Interaction interaction) return;
+        
+        switch (interaction)
         {
-            await _scriptManager.RouteCommandInteractionAsync(context);
+            case ApplicationCommandInteraction commandInteraction:
+                await HandleApplicationCommandAsync(commandInteraction);
+                break;
+
+            case ComponentInteraction componentInteraction:
+                //TODO: Implement
+                //TODO: Buttons, Dropdowns, Modals
+                //await HandleComponentInteractionAsync(componentInteraction);
+                break;
+            
+            case AutocompleteInteraction autocompleteInteraction:
+                //TODO: Implement
+                //await HandleAutocompleteAsync(autocompleteInteraction);
+                break;
         }
-        else
+
+        
+    }
+    
+    private async Task HandleApplicationCommandAsync(ApplicationCommandInteraction command)
+    {
+        switch (command)
         {
-            await _nativeCommandService.ExecuteAsync(context);
+            case SlashCommandInteraction slash:
+                var slashContext = new SlashCommandContext(slash, _gatewayClient);
+                var slashKey = _scriptManager.GetFlattenedCommandKey(slashContext);
+
+                if (_scriptManager.HasActiveRunner(slashKey))
+                    await _scriptManager.RunScriptAsync(slashKey, slashContext);
+                else
+                    await _nativeCommandService.ExecuteAsync(slashContext);
+                break;
+
+            case UserCommandInteraction userMenu:
+                var userContext = new UserCommandContext(userMenu, _gatewayClient);
+                //TODO: Implement
+                break;
+
+            case MessageCommandInteraction messageMenu:
+                var messageContext = new MessageCommandContext(messageMenu, _gatewayClient);
+                //TODO: Implement
+                break;
         }
     }
 }

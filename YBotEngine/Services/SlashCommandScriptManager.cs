@@ -8,10 +8,10 @@ using YScriptEngine.Abstractions;
 
 namespace YBotEngine.Services;
 
-public class SlashCommandScriptManager<TCommandContext>(
+public class SlashCommandScriptManager(
     IServiceProvider serviceProvider,
     IScriptContextFactory contextFactory,
-    IServiceScopeFactory scopeFactory) where TCommandContext : IApplicationCommandContext
+    IServiceScopeFactory scopeFactory)
 {
     
     private readonly ConcurrentDictionary<string, IScript> _activeCommandRunners = new();
@@ -23,7 +23,7 @@ public class SlashCommandScriptManager<TCommandContext>(
         var compiler = serviceProvider.GetKeyedService<ICompiler>(compilerType.ToLower().Trim())
             ?? throw new NotSupportedException($"The script compiler type '{compilerType}' is not registered.");
 
-        var contextType = typeof(RoslynScriptContext<TCommandContext>);
+        var contextType = typeof(RoslynScriptContext<SlashCommandContext>);
         var compiledRunner = await compiler.CompileAsync(rawSource, contextType);
 
         _activeCommandRunners[pathKey.ToLower().Trim()] = compiledRunner;
@@ -35,10 +35,9 @@ public class SlashCommandScriptManager<TCommandContext>(
     }
 
     public void ClearAll() => _activeCommandRunners.Clear();
-    public async Task RouteCommandInteractionAsync(SlashCommandContext context)
-    {
-        var lookupPathKey = GetFlattenedCommandKey(context);
 
+    public async Task RunScriptAsync(string lookupPathKey, SlashCommandContext context)
+    {
         if (_activeCommandRunners.TryGetValue(lookupPathKey, out var runner))
         {
             using var scope = scopeFactory.CreateScope();

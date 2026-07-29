@@ -23,6 +23,7 @@ public static class ScriptOptionsExtension
                 MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(List<>).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.RegularExpressions.Regex).Assembly.Location),
                 MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Runtime.dll")),
                 MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Collections.dll")),
                 MetadataReference.CreateFromFile(Path.Combine(runtimeDirectory, "System.Threading.Tasks.dll")),
@@ -48,7 +49,7 @@ public static class ScriptOptionsExtension
 
             string[] globalImports =
             [
-                "System", "System.IO", "System.Text", "System.Text.Json", "System.Linq",
+                "System", "System.IO", "System.Text", "System.Text.Json", "System.Text.RegularExpressions", "System.Linq",
                 "System.Collections.Generic", "System.Threading.Tasks", "NetCord",
                 "NetCord.Gateway", "NetCord.Rest", "NetCord.Services", "YBotEngine.Services"
             ];

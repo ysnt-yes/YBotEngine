@@ -31,6 +31,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\YScriptEngine.NodeGraph\YScriptEngine.NodeGraph.csproj" />
         <ProjectReference Include="..\YScriptEngine.Roslyn\YScriptEngine.Roslyn.csproj" />
     </ItemGroup>
 

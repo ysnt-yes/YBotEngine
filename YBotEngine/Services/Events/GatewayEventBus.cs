@@ -8,7 +8,7 @@ namespace YBotEngine.Services.Events;
 
 public class GatewayEventBus
 {
-    private readonly ConcurrentDictionary<string, Delegate> _allocatedDelegates = new(StringComparer.OrdinalIgnoreCase);
+
     public GatewayEventBus(
         IEventBus bus, 
         DiscordEventRegistry registry, 
@@ -19,37 +19,49 @@ public class GatewayEventBus
         {
             var (eventInfo, payloadType) = keyValuePair.Value;
 
-            logger.LogInformation($"Registering event {eventInfo.Name}");
+            logger.LogDebug("Hooking into Netcord event: {EventInfoName}", eventInfo.Name);
             Delegate handlerDelegate;
             
             if (payloadType == typeof(void))
             {
-                var action = () =>
+                handlerDelegate = () =>
                 {
                     bus.Publish(new GatewayBusEvent(keyValuePair.Key, null));
                     return ValueTask.CompletedTask;
                 };
-                handlerDelegate = action;
             }
             else
             {
+                var eventHandlerType = eventInfo.EventHandlerType!;
+                var invokeMethod = eventHandlerType.GetMethod("Invoke")!;
+                var expectedType = invokeMethod.GetParameters()[0].ParameterType;
+
                 var method = typeof(GatewayEventBus)
                     .GetMethod(nameof(CreateGenericHandler), BindingFlags.NonPublic | BindingFlags.Static)!
-                    .MakeGenericMethod(payloadType);
+                    .MakeGenericMethod(expectedType, payloadType);
 
                 handlerDelegate = (Delegate)method.Invoke(null, [keyValuePair.Key, bus])!;
             }
 
-            _allocatedDelegates[keyValuePair.Key] = handlerDelegate;
+            
             eventInfo.AddEventHandler(client, handlerDelegate);
         }
     }
     
-    private static Func<T, ValueTask> CreateGenericHandler<T>(string eventName, IEventBus eventBus) where T : notnull
+    private static Func<TNetcord, ValueTask> CreateGenericHandler<TNetcord, TPayload>(string eventName, IEventBus eventBus) 
+        where TNetcord : notnull
     {
         return (payload) =>
         {
-            eventBus.Publish(new GatewayBusEvent(eventName, payload));
+            if (typeof(TPayload) == typeof(TNetcord))
+            {
+                eventBus.Publish(new GatewayBusEvent(eventName, payload));
+            }
+            else if (payload is TPayload matchingPayload)
+            {
+                eventBus.Publish(new GatewayBusEvent(eventName, matchingPayload));
+            }
+
             return ValueTask.CompletedTask;
         };
     }

@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="YBotEngine/YBotEngine.csproj" />
   <Project Path="YScriptEngine.Abstractions/YScriptEngine.Abstractions.csproj" />
+  <Project Path="YScriptEngine.NodeGraph/YScriptEngine.NodeGraph.csproj" />
   <Project Path="YScriptEngine.Roslyn/YScriptEngine.Roslyn.csproj" />
 </Solution>
